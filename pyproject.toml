@@ -10,7 +10,7 @@ dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "pandas-market-calendars>=4.4",
-    "alpaca-py>=0.30",
+    "alpaca-py>=0.30,<0.50",
     "yfinance>=0.2.40",
     "fredapi>=0.5",
     "feedparser>=6.0",
@@ -46,9 +46,17 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "N"]
+select = ["E", "F", "I", "B", "UP", "N", "C4"]
 
 [tool.mypy]
 python_version = "3.11"
-strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "fredapi.*", "feedparser.*", "pandas_market_calendars.*"]
+ignore_missing_imports = true

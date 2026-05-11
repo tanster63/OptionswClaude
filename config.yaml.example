@@ -1,0 +1,13 @@
+# trading-assistant configuration. Copy to ~/.config/trading-assistant/config.yaml.
+
+mode: paper                       # Phase 1 supports paper only.
+universe: [SPY, QQQ, IWM, DIA]
+daily_idea_cap: 2
+daily_loss_cap_usd: 500.0
+max_spread_pct_of_mid: 0.05
+pin_risk_pct: 0.015
+quiet_hours_start: "22:00"
+quiet_hours_end: "07:00"
+timezone: "America/New_York"
+log_level: INFO
+log_json: true

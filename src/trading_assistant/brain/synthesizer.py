@@ -29,8 +29,33 @@ Constraints:
 - Expiry: 14-45 calendar days out for swing positioning.
 - max_loss_usd reflects total risk per contract (premium paid for long, max spread loss for spreads).
 - confidence in [0.0, 1.0]. Be conservative - 0.5 is "modestly compelling."
-- Return STRICT JSON ONLY in the shape: {{"proposals": [...]}}. No prose, no markdown fences.
+- Return STRICT JSON ONLY. No prose, no markdown fences.
 - Return {{"proposals": []}} when no setup is compelling.
+
+OUTPUT SCHEMA (use these EXACT field names; do not substitute synonyms):
+
+{{
+  "proposals": [
+    {{
+      "symbol": "SPY",
+      "strategy": "bull_call_spread",
+      "legs": [
+        {{"side": "buy",  "right": "C", "strike": 740.0, "expiry": "2026-06-19", "qty": 1}},
+        {{"side": "sell", "right": "C", "strike": 745.0, "expiry": "2026-06-19", "qty": 1}}
+      ],
+      "rationale_md": "Markdown explanation citing signals.",
+      "max_loss_usd": 250.0,
+      "max_gain_usd": 250.0,
+      "confidence": 0.55,
+      "signal_ids": ["sig_id_1"]
+    }}
+  ]
+}}
+
+Field name rules (these MUST match exactly):
+- Leg fields: side ("buy"|"sell"), right ("C"|"P"), strike (number), expiry ("YYYY-MM-DD"), qty (int >= 1)
+- NEVER use: "action", "option_type", "quantity", "type" — use side/right/qty.
+- Proposal-level: rationale_md (not "rationale"), max_gain_usd (not "target_profit_usd"; null if uncapped).
 """
 
 

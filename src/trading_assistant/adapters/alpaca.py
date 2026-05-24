@@ -51,6 +51,7 @@ class AlpacaBarsAdapter:
         self._client = StockHistoricalDataClient(api_key, secret_key)
 
     def daily_bars(self, symbol: str, start: dt.date, end: dt.date) -> list[Bar]:
+        from alpaca.data.enums import DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
 
@@ -59,6 +60,7 @@ class AlpacaBarsAdapter:
             timeframe=TimeFrame.Day,
             start=dt.datetime.combine(start, dt.time.min, tzinfo=dt.timezone.utc),
             end=dt.datetime.combine(end, dt.time.max, tzinfo=dt.timezone.utc),
+            feed=DataFeed.IEX,
         )
         resp = self._client.get_stock_bars(req)
         rows = resp.data.get(symbol, []) if hasattr(resp, "data") else []

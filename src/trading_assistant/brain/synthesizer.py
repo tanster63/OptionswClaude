@@ -56,6 +56,12 @@ Field name rules (these MUST match exactly):
 - Leg fields: side ("buy"|"sell"), right ("C"|"P"), strike (number), expiry ("YYYY-MM-DD"), qty (int >= 1)
 - NEVER use: "action", "option_type", "quantity", "type" — use side/right/qty.
 - Proposal-level: rationale_md (not "rationale"), max_gain_usd (not "target_profit_usd"; null if uncapped).
+
+CONTRACT SELECTION:
+- The user message includes "available_contracts": {{symbol: [{{expiry, strike, right, bid, ask}}, ...]}}.
+- You MUST pick (expiry, strike, right) tuples that exist verbatim in available_contracts[symbol].
+- If available_contracts[symbol] is empty or missing, do NOT propose a trade on that symbol.
+- Prefer strikes with non-zero bid AND ask (illiquid contracts will be rejected downstream anyway).
 """
 
 
@@ -74,6 +80,7 @@ class IdeaSynthesizer:
         quotes: dict[str, Quote],
         recent_news: list[dict[str, Any]],
         now: dt.datetime,
+        chain_menu: dict[str, list[dict[str, Any]]] | None = None,
     ) -> list[TradeIntent]:
         if not signals:
             return []
@@ -85,6 +92,7 @@ class IdeaSynthesizer:
             "quotes": {sym: {"bid": q.bid, "ask": q.ask, "mid": (q.bid + q.ask) / 2}
                        for sym, q in quotes.items()},
             "recent_news": recent_news[:20],
+            "available_contracts": chain_menu or {},
         }, default=str)
 
         try:

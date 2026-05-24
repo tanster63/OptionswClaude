@@ -175,8 +175,36 @@ def synthesize(
     recent_news = [{"title": r["title"], "source": r["source"],
                      "published_at": r["published_at"]} for r in recent_news_rows]
 
+    # Build a chain "menu" for Claude: for each symbol, the next 4 expiries
+    # in the 14-45 day swing window, with ±5% ATM strikes per expiry.
+    chain_menu: dict[str, list[dict]] = {}
+    today = now.date()
+    for sym in cfg.universe:
+        q = quotes.get(sym)
+        if q is None:
+            continue
+        mid = (q.bid + q.ask) / 2.0
+        full_chain = oc.chain(sym)
+        if not full_chain:
+            continue
+        valid = [c for c in full_chain
+                 if 14 <= (c.expiry - today).days <= 45
+                 and abs(c.strike - mid) <= mid * 0.05]
+        # Trim per expiry to keep the prompt small.
+        by_exp: dict = {}
+        for c in valid:
+            by_exp.setdefault(c.expiry, []).append(c)
+        picked: list[dict] = []
+        for expiry in sorted(by_exp.keys())[:4]:
+            contracts = sorted(by_exp[expiry], key=lambda c: abs(c.strike - mid))[:12]
+            for c in contracts:
+                picked.append({"expiry": c.expiry.isoformat(), "strike": c.strike,
+                               "right": c.right, "bid": c.bid, "ask": c.ask})
+        chain_menu[sym] = picked
+
     candidates = synth.synthesize(signals=all_signals, quotes=quotes,
-                                   recent_news=recent_news, now=now)
+                                   recent_news=recent_news, now=now,
+                                   chain_menu=chain_menu)
 
     intent_repo = TradeIntentRepo(conn)
     validator = Validator(guards=[

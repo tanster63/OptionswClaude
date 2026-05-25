@@ -241,3 +241,107 @@ def synthesize(
         if intent.max_gain_usd is not None:
             typer.echo(f"Max gain: ${intent.max_gain_usd:.2f}")
         typer.echo(f"\nRationale:\n{intent.rationale_md}")
+
+
+@app.command()
+def check_holding(
+    symbol: str = typer.Option(..., help="Ticker symbol, e.g. OUST"),
+    shares: float = typer.Option(..., help="Shares owned (use 0 if 'considering buying')"),
+    cost_basis: float = typer.Option(..., help="Price per share paid"),
+    account: str = typer.Option("taxable",
+                                 help="Account type: taxable | roth | ira | unknown"),
+    config: Path = typer.Option(..., exists=True, dir_okay=False),
+    env: Path = typer.Option(..., exists=True, dir_okay=False),
+    db: Path = typer.Option(Path("./data/app.db")),
+    llm_model: str = typer.Option("claude-opus-4-7"),
+    max_tokens: int = typer.Option(1500),
+) -> None:
+    """Pull fresh data on a stock you own (or are considering) and get a HOLD/TRIM/SELL/BUY_MORE recommendation."""
+    import statistics
+
+    import anthropic
+
+    from trading_assistant.adapters.alpaca import AlpacaBarsAdapter
+    from trading_assistant.adapters.yahoo import YahooChainAdapter, YahooQuoteAdapter
+    from trading_assistant.brain.anthropic_client import AnthropicClient
+    from trading_assistant.brain.holding_analyst import HoldingAnalyst, HoldingContext
+
+    cfg = load_config(config)
+    secrets = load_secrets(env)
+    configure_logging(level=cfg.log_level, json_output=cfg.log_json)
+    conn = open_connection(db)
+    create_schema(conn)
+
+    symbol = symbol.upper()
+    log.info("check_holding_start", symbol=symbol, shares=shares,
+             cost_basis=cost_basis, account=account)
+
+    # Quote (Yahoo - works for any ticker)
+    q = YahooQuoteAdapter().latest_quote(symbol)
+
+    # Bars (Alpaca IEX, 120 days)
+    bars = AlpacaBarsAdapter(api_key=secrets.alpaca_api_key,
+                              secret_key=secrets.alpaca_secret_key).daily_bars(
+        symbol, dt.date.today() - dt.timedelta(days=120), dt.date.today()
+    )
+
+    # IV summary (optional; if no chain, just skip)
+    iv_summary = None
+    try:
+        chain = YahooChainAdapter().chain(symbol)
+        if chain:
+            mid = (q.bid + q.ask) / 2 if q.bid > 0 and q.ask > 0 else q.last
+            atm = sorted(chain, key=lambda c: abs(c.strike - mid))[:6]
+            ivs = [c.iv for c in atm if c.iv is not None and c.iv > 0]
+            if ivs:
+                med = statistics.median(ivs)
+                regime = "high" if med >= 0.25 else "low" if med <= 0.15 else "normal"
+                iv_summary = {"median_atm_iv": med, "regime": regime}
+    except Exception as exc:
+        log.warning("chain_fetch_failed_for_holding", symbol=symbol, error=str(exc))
+
+    # Recent news matching this symbol (last 7 days)
+    cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+    news_rows = conn.execute(
+        "SELECT title, source, published_at FROM news_items "
+        "WHERE arrived_at >= ? AND (title LIKE ? OR title LIKE ?) "
+        "ORDER BY arrived_at DESC LIMIT 15",
+        (cutoff, f"%{symbol}%", f"%{symbol.lower()}%"),
+    ).fetchall()
+    recent_news = [{"title": r["title"], "source": r["source"],
+                     "published_at": r["published_at"]} for r in news_rows]
+
+    ctx = HoldingContext(
+        symbol=symbol, shares=shares, cost_basis=cost_basis, account=account,
+        current_quote=q, bars_90d=bars, iv_summary=iv_summary, recent_news=recent_news,
+    )
+
+    sdk = anthropic.Anthropic(api_key=secrets.anthropic_api_key)
+    llm = AnthropicClient(sdk=sdk, model=llm_model, max_tokens=max_tokens)
+    analyst = HoldingAnalyst(llm=llm)
+    rec = analyst.analyze(ctx)
+
+    typer.echo(f"\n=== Holding Check: {symbol} ===")
+    mid = (q.bid + q.ask) / 2 if q.bid > 0 and q.ask > 0 else q.last
+    if shares > 0 and cost_basis > 0:
+        pnl_pct = (mid / cost_basis - 1) * 100
+        pnl_total = (mid - cost_basis) * shares
+        typer.echo(f"Position:        {shares} shares @ cost ${cost_basis:.2f}  "
+                   f"(current ${mid:.2f}, {pnl_pct:+.1f}%, ${pnl_total:+,.2f})")
+    else:
+        typer.echo(f"Position:        considering purchase (current ${mid:.2f})")
+    typer.echo(f"Account:         {account}")
+
+    if rec is None:
+        typer.echo("\nAnalysis failed - LLM call errored or response unparseable. Check logs.")
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nRecommendation:  {rec.action.value.upper()}   confidence {rec.confidence:.2f}")
+    typer.echo(f"\nReasoning:\n{rec.rationale_md}")
+    if rec.key_risks:
+        typer.echo("\nKey risks:")
+        for r in rec.key_risks:
+            typer.echo(f"  - {r}")
+    if rec.tax_note:
+        typer.echo(f"\nTax note: {rec.tax_note}")
+    typer.echo("\n(This is analysis to consider, not investment advice.)")

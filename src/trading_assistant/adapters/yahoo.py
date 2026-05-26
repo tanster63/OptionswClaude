@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 
 import yfinance as yf
 
 from trading_assistant.ingest.market_data import Quote
 from trading_assistant.ingest.options_chain import OptionContract
+
+
+def _safe_int(v) -> int:
+    """Convert a possibly-NaN/None/string value to int; return 0 on failure."""
+    if v is None:
+        return 0
+    try:
+        f = float(v)
+        if math.isnan(f):
+            return 0
+        return int(f)
+    except (TypeError, ValueError):
+        return 0
 
 
 class YahooQuoteAdapter:
@@ -42,5 +56,7 @@ class YahooChainAdapter:
                         ask=float(getattr(row, "ask", 0.0) or 0.0),
                         last=float(getattr(row, "lastPrice", 0.0) or 0.0),
                         iv=float(getattr(row, "impliedVolatility", 0.0) or 0.0),
+                        volume=_safe_int(getattr(row, "volume", 0)),
+                        open_interest=_safe_int(getattr(row, "openInterest", 0)),
                     ))
         return out

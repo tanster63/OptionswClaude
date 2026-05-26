@@ -25,7 +25,9 @@ class OptionContract:
     bid: float
     ask: float
     last: float
-    iv: float | None
+    iv: float | None = None
+    volume: int = 0
+    open_interest: int = 0
 
 
 class _ChainSource(Protocol):

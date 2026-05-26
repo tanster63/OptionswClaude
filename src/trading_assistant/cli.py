@@ -199,7 +199,8 @@ def synthesize(
             contracts = sorted(by_exp[expiry], key=lambda c: abs(c.strike - mid))[:12]
             for c in contracts:
                 picked.append({"expiry": c.expiry.isoformat(), "strike": c.strike,
-                               "right": c.right, "bid": c.bid, "ask": c.ask})
+                               "right": c.right, "bid": c.bid, "ask": c.ask,
+                               "volume": c.volume, "open_interest": c.open_interest})
         chain_menu[sym] = picked
 
     candidates = synth.synthesize(signals=all_signals, quotes=quotes,

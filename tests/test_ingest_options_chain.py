@@ -77,3 +77,24 @@ def test_returns_empty_chain_without_falling_back():
     client = OptionsChainClient(primary=primary, fallback=fallback)
     chain = client.chain("SPY")
     assert chain == []
+
+
+def test_option_contract_defaults_volume_and_oi_to_zero():
+    c = OptionContract(
+        occ_symbol="X", underlying="SPY",
+        expiry=dt.date(2026, 6, 19), strike=740.0, right="C",
+        bid=1.0, ask=1.1, last=1.05, iv=0.20,
+    )
+    assert c.volume == 0
+    assert c.open_interest == 0
+
+
+def test_option_contract_accepts_explicit_volume_and_oi():
+    c = OptionContract(
+        occ_symbol="X", underlying="SPY",
+        expiry=dt.date(2026, 6, 19), strike=740.0, right="C",
+        bid=1.0, ask=1.1, last=1.05, iv=0.20,
+        volume=1500, open_interest=12_000,
+    )
+    assert c.volume == 1500
+    assert c.open_interest == 12_000

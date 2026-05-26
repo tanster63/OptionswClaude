@@ -140,6 +140,11 @@ def synthesize(
     now = dt.datetime.now(dt.timezone.utc)
     log.info("synthesize_start", universe=cfg.universe, now=now.isoformat())
 
+    from trading_assistant.calendars.market import MarketCalendar, SessionState
+    market_cal = MarketCalendar()
+    session = market_cal.session_state(now)
+    log.info("market_session_state", state=session.value)
+
     md, oc, ec, nc = _wire_ingestion(cfg, secrets, conn)
     quotes = md.snapshot(cfg.universe)
     ec.refresh()
@@ -219,7 +224,8 @@ def synthesize(
                         min_volume=cfg.min_option_volume,
                         min_open_interest=cfg.min_option_open_interest),
         StaleQuoteGuard(quote_client=md,
-                         max_age_seconds=cfg.quote_stale_seconds, now=now),
+                         max_age_seconds=cfg.quote_stale_seconds, now=now,
+                         skip_when_closed=(session == SessionState.CLOSED)),
         PinRiskGuard(quote_client=md, pin_pct=cfg.pin_risk_pct, now=now),
         EventWindowGuard(calendar=event_cal, now=now),
         MinRiskRewardGuard(min_ratio=cfg.min_risk_reward_ratio),
@@ -239,6 +245,11 @@ def synthesize(
 
     typer.echo("\n=== Synthesis ===")
     typer.echo(f"Time:       {now.isoformat()}")
+    typer.echo(f"Session:    {session.value.upper().replace('_', ' ')}")
+    if session == SessionState.CLOSED:
+        typer.echo("            ⚠️  Market closed — quotes may be stale; analysis is for paper-trading study only.")
+    elif session == SessionState.HALF_DAY_OPEN:
+        typer.echo("            ⚠️  Half-day session (early close).")
     typer.echo(f"Signals:    {len(all_signals)}")
     typer.echo(f"Candidates: {len(candidates)}")
     typer.echo(f"Accepted:   {len(accepted)}")

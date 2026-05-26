@@ -68,3 +68,25 @@ def test_rejects_unparseable_timestamp():
     res = guard.check(_intent())
     assert res.outcome == GuardOutcome.REJECT
     assert res.reason == "underlying_quote_unparseable_ts"
+
+
+def test_skip_when_closed_returns_accept_regardless_of_quote_age():
+    """When the orchestrator says market is closed, the guard short-circuits to ACCEPT."""
+    very_old = _NOW - dt.timedelta(hours=72)
+    guard = StaleQuoteGuard(
+        quote_client=_FakeQuotes({"SPY": _quote(very_old)}),
+        max_age_seconds=900, now=_NOW, skip_when_closed=True,
+    )
+    assert guard.check(_intent()).outcome == GuardOutcome.ACCEPT
+
+
+def test_skip_when_closed_false_is_default_behavior():
+    """Without skip_when_closed, stale quotes still reject (regression check)."""
+    old = _NOW - dt.timedelta(seconds=1800)
+    guard = StaleQuoteGuard(
+        quote_client=_FakeQuotes({"SPY": _quote(old)}),
+        max_age_seconds=900, now=_NOW,
+    )
+    res = guard.check(_intent())
+    assert res.outcome == GuardOutcome.REJECT
+    assert res.reason == "stale_underlying_quote"

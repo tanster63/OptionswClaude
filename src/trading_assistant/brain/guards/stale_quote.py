@@ -18,12 +18,15 @@ class StaleQuoteGuard:
     name = "stale_quote"
 
     def __init__(self, quote_client: _QuoteClient, max_age_seconds: int,
-                 now: dt.datetime) -> None:
+                 now: dt.datetime, skip_when_closed: bool = False) -> None:
         self._quote = quote_client
         self._max_age = max_age_seconds
         self._now = now
+        self._skip = skip_when_closed
 
     def check(self, intent: TradeIntent) -> GuardResult:
+        if self._skip:
+            return GuardResult(outcome=GuardOutcome.ACCEPT, reason=None)
         quotes = self._quote.snapshot([intent.symbol])
         q = quotes.get(intent.symbol)
         if q is None:

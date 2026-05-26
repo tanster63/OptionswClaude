@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import datetime as dt
+from enum import Enum
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pandas_market_calendars as mcal
+
+
+class SessionState(str, Enum):
+    OPEN = "open"
+    CLOSED = "closed"
+    HALF_DAY_OPEN = "half_day_open"
 
 
 class MarketCalendar:
@@ -53,3 +60,17 @@ class MarketCalendar:
         row = next(sched.itertuples())
         close_et = row.market_close.tz_convert(self.tz)
         return close_et.hour < 16
+
+    def session_state(self, now: dt.datetime | None = None) -> SessionState:
+        """Return the current US market session state.
+
+        - OPEN: regular trading session is in progress.
+        - HALF_DAY_OPEN: an early-close day is in progress (still open).
+        - CLOSED: weekend, holiday, before open, or after close.
+        """
+        when = now or self._now_utc()
+        if not self.is_open_now(when):
+            return SessionState.CLOSED
+        if self.is_half_day(when.date()):
+            return SessionState.HALF_DAY_OPEN
+        return SessionState.OPEN

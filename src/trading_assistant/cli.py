@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import structlog
 import typer
@@ -16,6 +18,64 @@ from trading_assistant.secrets import load_secrets
 
 app = typer.Typer(help="Local options trading assistant")
 log = structlog.get_logger(__name__)
+
+
+def _print_synthesis_results(
+    now: dt.datetime,
+    session_label: str,
+    session_warning: str | None,
+    all_signals_count: int,
+    candidates_count: int,
+    accepted: list,             # list[TradeIntent]
+    rejected: list,             # list[tuple[TradeIntent, str]]
+    echo: Any = typer.echo,     # injectable for tests
+) -> None:
+    echo("\n=== Synthesis ===")
+    echo(f"Time:       {now.isoformat()}")
+    echo(f"Session:    {session_label}")
+    if session_warning:
+        echo(f"            {session_warning}")
+    echo(f"Signals:    {all_signals_count}")
+    echo(f"Candidates: {candidates_count}")
+    echo(f"Accepted:   {len(accepted)}")
+    echo(f"Rejected:   {len(rejected)}")
+
+    for intent in accepted:
+        echo("\n---")
+        echo(f"{intent.symbol}  {intent.strategy.value}  confidence={intent.confidence:.2f}")
+        for leg in intent.legs:
+            echo(f"  {leg.side:>4} {leg.qty}x {leg.right} @ {leg.strike:.2f} exp {leg.expiry}")
+        echo(f"Max loss: ${intent.max_loss_usd:.2f}")
+        if intent.max_gain_usd is not None:
+            echo(f"Max gain: ${intent.max_gain_usd:.2f}")
+        echo(f"\nRationale:\n{intent.rationale_md}")
+
+    if rejected:
+        echo("\n--- Rejected ideas ---")
+        for intent, reason in rejected:
+            legs_brief = " / ".join(
+                f"{leg.side[0].upper()}{leg.right}{leg.strike:g}@{leg.expiry}"
+                for leg in intent.legs
+            )
+            echo(f"  {intent.symbol}  {intent.strategy.value:18s}  {legs_brief:35s}  → {reason}")
+
+    if not accepted:
+        echo("\n--- No trades surfaced this cycle ---")
+        echo(f"  Signals generated:    {all_signals_count}")
+        if all_signals_count == 0:
+            echo("  Reason: no signals were generated — none of the four generators found anything.")
+            echo("  Suggestion: this is normal on quiet days; try again later or during market hours.")
+        elif candidates_count == 0:
+            echo(f"  Reason: signals were generated but Claude declined to propose any trades.")
+            echo(f"  This is healthy behavior — the model judged no setup was compelling enough.")
+        else:
+            reasons = Counter(r for _, r in rejected)
+            echo(f"  Reason: {candidates_count} candidate(s) were proposed but all were filtered.")
+            echo(f"  Rejection breakdown:")
+            for reason, count in reasons.most_common():
+                echo(f"    {count}x {reason}")
+            echo("  Suggestion: review whether thresholds (spread/liquidity/R-R) are too strict, "
+                   "or whether market conditions don't suit defined-risk swing trades right now.")
 
 
 def _wire_ingestion(cfg, secrets, conn):
@@ -234,7 +294,8 @@ def synthesize(
                            loss_cap_usd=cfg.daily_loss_cap_usd),
     ])
 
-    accepted = []
+    accepted: list = []
+    rejected: list[tuple] = []  # (intent, reason)
     for intent in candidates:
         decision = validator.validate(intent)
         if decision.outcome == GuardOutcome.ACCEPT:
@@ -242,28 +303,20 @@ def synthesize(
             accepted.append(intent)
         else:
             intent_repo.write(intent, status="rejected", rejection_reason=decision.reason)
+            rejected.append((intent, decision.reason or "unknown"))
 
-    typer.echo("\n=== Synthesis ===")
-    typer.echo(f"Time:       {now.isoformat()}")
-    typer.echo(f"Session:    {session.value.upper().replace('_', ' ')}")
+    session_label = session.value.upper().replace('_', ' ')
+    session_warning = None
     if session == SessionState.CLOSED:
-        typer.echo("            ⚠️  Market closed — quotes may be stale; analysis is for paper-trading study only.")
+        session_warning = "⚠️  Market closed — quotes may be stale; analysis is for paper-trading study only."
     elif session == SessionState.HALF_DAY_OPEN:
-        typer.echo("            ⚠️  Half-day session (early close).")
-    typer.echo(f"Signals:    {len(all_signals)}")
-    typer.echo(f"Candidates: {len(candidates)}")
-    typer.echo(f"Accepted:   {len(accepted)}")
-    typer.echo(f"Rejected:   {len(candidates) - len(accepted)}")
+        session_warning = "⚠️  Half-day session (early close)."
 
-    for intent in accepted:
-        typer.echo("\n---")
-        typer.echo(f"{intent.symbol}  {intent.strategy.value}  confidence={intent.confidence:.2f}")
-        for leg in intent.legs:
-            typer.echo(f"  {leg.side:>4} {leg.qty}x {leg.right} @ {leg.strike:.2f} exp {leg.expiry}")
-        typer.echo(f"Max loss: ${intent.max_loss_usd:.2f}")
-        if intent.max_gain_usd is not None:
-            typer.echo(f"Max gain: ${intent.max_gain_usd:.2f}")
-        typer.echo(f"\nRationale:\n{intent.rationale_md}")
+    _print_synthesis_results(
+        now=now, session_label=session_label, session_warning=session_warning,
+        all_signals_count=len(all_signals), candidates_count=len(candidates),
+        accepted=accepted, rejected=rejected,
+    )
 
 
 @app.command()

@@ -20,6 +20,12 @@ class AppConfig(BaseModel):
     daily_loss_cap_usd: float = 500.0
     max_spread_pct_of_mid: float = 0.05
     pin_risk_pct: float = 0.015
+    min_option_volume: int = 50
+    min_option_open_interest: int = 100
+    min_risk_reward_ratio: float = 1.0
+    min_dte: int = 14
+    max_dte: int = 45
+    quote_stale_seconds: int = 900   # 15 minutes
     quiet_hours_start: str = "22:00"
     quiet_hours_end: str = "07:00"
     timezone: str = "America/New_York"

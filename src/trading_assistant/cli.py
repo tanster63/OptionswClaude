@@ -113,9 +113,13 @@ def synthesize(
 
     from trading_assistant.brain.anthropic_client import AnthropicClient
     from trading_assistant.brain.guards.caps import DailyLossCapGuard, IdeaCapGuard
+    from trading_assistant.brain.guards.dte import DTEGuard
     from trading_assistant.brain.guards.event_window import EventWindowGuard
+    from trading_assistant.brain.guards.liquidity import LiquidityGuard
     from trading_assistant.brain.guards.pin_risk import PinRiskGuard
+    from trading_assistant.brain.guards.risk_reward import MinRiskRewardGuard
     from trading_assistant.brain.guards.spread import SpreadGuard
+    from trading_assistant.brain.guards.stale_quote import StaleQuoteGuard
     from trading_assistant.brain.synthesizer import IdeaSynthesizer
     from trading_assistant.brain.validator import GuardOutcome, Validator
     from trading_assistant.calendars.events import EventCalendar
@@ -209,9 +213,16 @@ def synthesize(
 
     intent_repo = TradeIntentRepo(conn)
     validator = Validator(guards=[
+        DTEGuard(min_dte=cfg.min_dte, max_dte=cfg.max_dte, now=now),
         SpreadGuard(chain_client=oc, max_pct=cfg.max_spread_pct_of_mid),
+        LiquidityGuard(chain_client=oc,
+                        min_volume=cfg.min_option_volume,
+                        min_open_interest=cfg.min_option_open_interest),
+        StaleQuoteGuard(quote_client=md,
+                         max_age_seconds=cfg.quote_stale_seconds, now=now),
         PinRiskGuard(quote_client=md, pin_pct=cfg.pin_risk_pct, now=now),
         EventWindowGuard(calendar=event_cal, now=now),
+        MinRiskRewardGuard(min_ratio=cfg.min_risk_reward_ratio),
         IdeaCapGuard(intent_repo=intent_repo, cap=cfg.daily_idea_cap, now=now),
         DailyLossCapGuard(state_repo=AppStateRepo(conn),
                            loss_cap_usd=cfg.daily_loss_cap_usd),

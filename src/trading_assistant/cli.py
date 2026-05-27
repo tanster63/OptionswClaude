@@ -28,6 +28,7 @@ def _print_synthesis_results(
     candidates_count: int,
     accepted: list,             # list[TradeIntent]
     rejected: list,             # list[tuple[TradeIntent, str]]
+    synth_status: str = "unknown",  # IdeaSynthesizer.last_status
     echo: Any = typer.echo,     # injectable for tests
 ) -> None:
     echo("\n=== Synthesis ===")
@@ -66,8 +67,19 @@ def _print_synthesis_results(
             echo("  Reason: no signals were generated — none of the four generators found anything.")
             echo("  Suggestion: this is normal on quiet days; try again later or during market hours.")
         elif candidates_count == 0:
-            echo(f"  Reason: signals were generated but Claude declined to propose any trades.")
-            echo(f"  This is healthy behavior — the model judged no setup was compelling enough.")
+            # Distinguish *why* no candidates came back from the synthesizer.
+            if synth_status == "unparseable_response":
+                echo("  Reason: Claude returned a response, but it couldn't be parsed as valid JSON.")
+                echo("  This is a model hallucination, not a system bug. Try again — it usually clears.")
+            elif synth_status == "llm_error":
+                echo("  Reason: the Anthropic API call failed (network, auth, or rate limit).")
+                echo("  Check logs above for the specific error.")
+            elif synth_status == "all_invalid_proposals":
+                echo("  Reason: Claude proposed trade(s) but all were dropped during parsing")
+                echo("  (e.g., out-of-universe symbols, uncited signal_ids, malformed legs).")
+            else:  # "declined" or any other status
+                echo("  Reason: signals were generated but Claude declined to propose any trades.")
+                echo("  This is healthy behavior — the model judged no setup was compelling enough.")
         else:
             reasons = Counter(r for _, r in rejected)
             echo(f"  Reason: {candidates_count} candidate(s) were proposed but all were filtered.")
@@ -165,7 +177,7 @@ def synthesize(
     config: Path = typer.Option(..., exists=True, dir_okay=False),
     env: Path = typer.Option(..., exists=True, dir_okay=False),
     db: Path = typer.Option(Path("./data/app.db")),
-    llm_model: str = typer.Option("claude-opus-4-7", help="Anthropic model id"),
+    llm_model: str = typer.Option("claude-sonnet-4-6", help="Anthropic model id"),
     max_tokens: int = typer.Option(2000, help="Hard cap on LLM output tokens"),
 ) -> None:
     """Run ingest -> signals -> LLM synthesize -> validate. Print accepted intents."""
@@ -315,6 +327,7 @@ def synthesize(
     _print_synthesis_results(
         now=now, session_label=session_label, session_warning=session_warning,
         all_signals_count=len(all_signals), candidates_count=len(candidates),
+        synth_status=synth.last_status,
         accepted=accepted, rejected=rejected,
     )
 

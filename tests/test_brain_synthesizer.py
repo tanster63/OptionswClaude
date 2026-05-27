@@ -159,3 +159,76 @@ def test_synthesizer_returns_empty_on_unparseable_response():
         now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc),
     )
     assert out == []
+
+
+def test_last_status_no_signals():
+    synth = IdeaSynthesizer(llm=_FakeLLM('{"proposals": []}'), universe=["SPY"])
+    synth.synthesize(signals=[], quotes={}, recent_news=[],
+                     now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc))
+    assert synth.last_status == "no_signals"
+
+
+def test_last_status_declined():
+    synth = IdeaSynthesizer(llm=_FakeLLM('{"proposals": []}'), universe=["SPY"])
+    synth.synthesize(signals=[_sig()], quotes={"SPY": _quote()}, recent_news=[],
+                     now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc))
+    assert synth.last_status == "declined"
+
+
+def test_last_status_unparseable():
+    synth = IdeaSynthesizer(llm=_FakeLLM("not json at all"), universe=["SPY"])
+    synth.synthesize(signals=[_sig()], quotes={"SPY": _quote()}, recent_news=[],
+                     now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc))
+    assert synth.last_status == "unparseable_response"
+
+
+def test_last_status_all_invalid_proposals():
+    """Proposal references unknown signal_ids → dropped → status = all_invalid_proposals."""
+    payload = {
+        "proposals": [
+            {"symbol": "SPY", "strategy": "long_call",
+             "legs": [{"side": "buy", "right": "C", "strike": 745.0,
+                        "expiry": "2026-06-19", "qty": 1}],
+             "rationale_md": "x", "max_loss_usd": 100.0, "max_gain_usd": None,
+             "confidence": 0.5, "signal_ids": ["does_not_exist"]}
+        ]
+    }
+    synth = IdeaSynthesizer(llm=_FakeLLM(json.dumps(payload)), universe=["SPY"])
+    out = synth.synthesize(
+        signals=[_sig()], quotes={"SPY": _quote()}, recent_news=[],
+        now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc),
+    )
+    assert out == []
+    assert synth.last_status == "all_invalid_proposals"
+
+
+def test_last_status_ok_when_proposal_succeeds():
+    payload = {
+        "proposals": [
+            {"symbol": "SPY", "strategy": "long_call",
+             "legs": [{"side": "buy", "right": "C", "strike": 745.0,
+                        "expiry": "2026-06-19", "qty": 1}],
+             "rationale_md": "x", "max_loss_usd": 100.0, "max_gain_usd": None,
+             "confidence": 0.5, "signal_ids": ["sig_1"]}
+        ]
+    }
+    synth = IdeaSynthesizer(llm=_FakeLLM(json.dumps(payload)), universe=["SPY"])
+    out = synth.synthesize(
+        signals=[_sig()], quotes={"SPY": _quote()}, recent_news=[],
+        now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc),
+    )
+    assert len(out) == 1
+    assert synth.last_status == "ok"
+
+
+def test_last_status_llm_error():
+    class _BoomLLM:
+        def complete(self, system, user):
+            raise RuntimeError("network down")
+    synth = IdeaSynthesizer(llm=_BoomLLM(), universe=["SPY"])
+    out = synth.synthesize(
+        signals=[_sig()], quotes={"SPY": _quote()}, recent_news=[],
+        now=dt.datetime(2026, 5, 11, tzinfo=dt.timezone.utc),
+    )
+    assert out == []
+    assert synth.last_status == "llm_error"

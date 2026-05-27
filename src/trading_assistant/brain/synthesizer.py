@@ -73,6 +73,9 @@ class IdeaSynthesizer:
     def __init__(self, llm: _LLM, universe: list[str]) -> None:
         self._llm = llm
         self._universe = [u.upper() for u in universe]
+        # Status of the most recent synthesize() call. Lets the CLI explain
+        # *why* no candidates surfaced (LLM declined vs unparseable vs error).
+        self.last_status: str = "unknown"
 
     def synthesize(
         self,
@@ -83,6 +86,7 @@ class IdeaSynthesizer:
         chain_menu: dict[str, list[dict[str, Any]]] | None = None,
     ) -> list[TradeIntent]:
         if not signals:
+            self.last_status = "no_signals"
             return []
         valid_signal_ids = {s.id for s in signals}
         system = _SYSTEM_PROMPT.format(universe=", ".join(self._universe))
@@ -99,18 +103,29 @@ class IdeaSynthesizer:
             resp = self._llm.complete(system=system, user=user)
         except Exception as exc:  # noqa: BLE001
             log.warning("synthesizer_llm_failed", error=str(exc))
+            self.last_status = "llm_error"
             return []
 
         payload = _extract_json(resp.text)
         if payload is None:
             log.warning("synthesizer_unparseable_response", sample=resp.text[:200])
+            self.last_status = "unparseable_response"
+            return []
+
+        raw_proposals = payload.get("proposals", [])
+        if not raw_proposals:
+            self.last_status = "declined"
             return []
 
         out: list[TradeIntent] = []
-        for prop in payload.get("proposals", []):
+        for prop in raw_proposals:
             intent = self._build_intent(prop, valid_signal_ids, now)
             if intent is not None:
                 out.append(intent)
+        if not out:
+            self.last_status = "all_invalid_proposals"
+        else:
+            self.last_status = "ok"
         return out
 
     def _build_intent(

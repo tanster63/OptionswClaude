@@ -103,15 +103,57 @@ def test_no_trade_summary_when_zero_signals():
 
 
 def test_no_trade_summary_when_signals_but_no_candidates():
+    """Default branch: status='declined' or unknown → 'Claude declined' message."""
     out, sink = _capture()
     _print_synthesis_results(
         now=_NOW, session_label="OPEN", session_warning=None,
         all_signals_count=6, candidates_count=0,
-        accepted=[], rejected=[], echo=sink,
+        accepted=[], rejected=[],
+        synth_status="declined", echo=sink,
     )
     text = "\n".join(out)
     assert "No trades surfaced" in text
     assert "Claude declined" in text
+
+
+def test_no_trade_summary_when_unparseable_response():
+    """status='unparseable_response' → different message that flags model hallucination."""
+    out, sink = _capture()
+    _print_synthesis_results(
+        now=_NOW, session_label="OPEN", session_warning=None,
+        all_signals_count=6, candidates_count=0,
+        accepted=[], rejected=[],
+        synth_status="unparseable_response", echo=sink,
+    )
+    text = "\n".join(out)
+    assert "couldn't be parsed" in text
+    assert "model hallucination" in text
+    assert "Claude declined" not in text
+
+
+def test_no_trade_summary_when_llm_error():
+    out, sink = _capture()
+    _print_synthesis_results(
+        now=_NOW, session_label="OPEN", session_warning=None,
+        all_signals_count=6, candidates_count=0,
+        accepted=[], rejected=[],
+        synth_status="llm_error", echo=sink,
+    )
+    text = "\n".join(out)
+    assert "Anthropic API call failed" in text
+
+
+def test_no_trade_summary_when_all_invalid_proposals():
+    out, sink = _capture()
+    _print_synthesis_results(
+        now=_NOW, session_label="OPEN", session_warning=None,
+        all_signals_count=6, candidates_count=0,
+        accepted=[], rejected=[],
+        synth_status="all_invalid_proposals", echo=sink,
+    )
+    text = "\n".join(out)
+    assert "proposed trade" in text
+    assert "dropped during parsing" in text
 
 
 def test_no_trade_summary_with_rejection_breakdown():

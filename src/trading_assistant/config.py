@@ -23,6 +23,8 @@ class AppConfig(BaseModel):
     min_option_volume: int = 50
     min_option_open_interest: int = 100
     min_risk_reward_ratio: float = 1.0
+    payoff_tolerance_pct: float = 0.05
+    payoff_tolerance_min_usd: float = 20.0
     min_dte: int = 14
     max_dte: int = 45
     quote_stale_seconds: int = 900   # 15 minutes

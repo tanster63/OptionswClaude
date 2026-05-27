@@ -188,6 +188,7 @@ def synthesize(
     from trading_assistant.brain.guards.dte import DTEGuard
     from trading_assistant.brain.guards.event_window import EventWindowGuard
     from trading_assistant.brain.guards.liquidity import LiquidityGuard
+    from trading_assistant.brain.guards.payoff_math import PayoffMathGuard
     from trading_assistant.brain.guards.pin_risk import PinRiskGuard
     from trading_assistant.brain.guards.risk_reward import MinRiskRewardGuard
     from trading_assistant.brain.guards.spread import SpreadGuard
@@ -300,6 +301,9 @@ def synthesize(
                          skip_when_closed=(session == SessionState.CLOSED)),
         PinRiskGuard(quote_client=md, pin_pct=cfg.pin_risk_pct, now=now),
         EventWindowGuard(calendar=event_cal, now=now),
+        PayoffMathGuard(chain_client=oc,
+                         tolerance_pct=cfg.payoff_tolerance_pct,
+                         tolerance_min_usd=cfg.payoff_tolerance_min_usd),
         MinRiskRewardGuard(min_ratio=cfg.min_risk_reward_ratio),
         IdeaCapGuard(intent_repo=intent_repo, cap=cfg.daily_idea_cap, now=now),
         DailyLossCapGuard(state_repo=AppStateRepo(conn),
